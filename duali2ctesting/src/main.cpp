@@ -6,8 +6,8 @@
 uint32_t I2C2_FREQ = 400000;
 
 
-//instantiate second Wire instance
-// TwoWire Wire1 = TwoWire(1);
+instantiate second Wire instance
+TwoWire Wire1 = TwoWire(1);
 
 
 
