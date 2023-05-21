@@ -1,7 +1,10 @@
+// Hardware configuration
+
 // #define USE_MCP9808
 #define USE_DS18
 // #define USE_AVERAGES
 #define USE_FILTER
+#define USE_WIFI
 
 #include <Arduino.h>
 #include <math.h>
@@ -13,6 +16,22 @@
 #include <IoAbstractionWire.h>
 
 #include <PCA9624.h>
+
+#ifdef USE_WIFI
+
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <AsyncElegantOTA.h>
+#include <espmdns.h>
+
+const char *ssid = "NETWORK_SSID";
+const char *password = "NETWORK_PASSWORD";
+const char *Hostname = "thermometer";
+
+AsyncWebServer server(80);
+
+#endif
 
 #ifdef USE_DS18
 #include <OneWire.h>
@@ -113,6 +132,10 @@ float tempC = 0;
 float tempF = 0;
 uint8_t hundredsValue, tensValue, onesValue, tenthsValue, hundredthsValue = 0;
 
+#ifdef USE_WIFI
+char tempstring[127];
+#endif
+
 bool testLED = 0;
 bool errorflag = 0;
 
@@ -146,8 +169,8 @@ enum brightnessLevels
 //   highest = 120
 // };
 
-//set default brightness on power-on
-// brightnessLevels displaybrightness = highest;
+// set default brightness on power-on
+//  brightnessLevels displaybrightness = highest;
 brightnessLevels displaybrightness = low;
 
 // function prototypes
@@ -164,11 +187,12 @@ void getTemperature(void);
 void toggleLED(void);
 void onKeyDown(pinid_t, bool);
 void onKeyUp(pinid_t, bool);
+void notFound(AsyncWebServerRequest *request);
 
 void setup()
 {
 
-  // Serial.begin(115200);  // ESP32 crashes without this, even if not actually needed
+  Serial.begin(115200); // ESP32 crashes without this, even if not actually needed
 
   // lcd.begin(16, 2);
   // taskManager.yieldForMicros(1000);
@@ -188,16 +212,16 @@ void setup()
   for (int thisReading = 0; thisReading < averages; thisReading++)
   {
     readings[thisReading] = tempC;
-    }
-
-  #endif
-  #ifdef USE_FILTER
-    ds18b20sensor.setResolution(12); // force max resolution for initial reading
-    //initialize temperature with one unfiltered high-res reading:
-    ds18b20read();
+  }
 
 #endif
-    ds18b20sensor.setResolution(DS18_RESOLUTION); //set final resolution for all subsequent readings
+#ifdef USE_FILTER
+  ds18b20sensor.setResolution(12); // force max resolution for initial reading
+  // initialize temperature with one unfiltered high-res reading:
+  ds18b20read();
+
+#endif
+  ds18b20sensor.setResolution(DS18_RESOLUTION); // set final resolution for all subsequent readings
 
 #endif
 
@@ -257,9 +281,6 @@ void setup()
   ledDrvHnds.groupPwm(globalbrightness);
   ledDrvTens.groupPwm(globalbrightness);
   ledDrvOnes.groupPwm(globalbrightness);
-  ledDrvHnds.allOn();
-  ledDrvTens.allOn();
-  ledDrvOnes.allOn();
 
   // schedule one-time tasks
 
@@ -287,12 +308,63 @@ void setup()
   setDecimal(tensDigit, false);
   setDecimal(onesDigit, false);
 
+#ifdef USE_WIFI
+  // turn off display while connecting to WiFi, to make it clear when OTA update is happening
+  ledDrvHnds.allOff();
+  ledDrvTens.allOff();
+  ledDrvOnes.allOff();
+
+  WiFi.setAutoReconnect(true);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  Serial.println("");
+
+  // Wait for connection
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("Connected to ");
+  Serial.println(ssid);
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  MDNS.begin(Hostname);
+  MDNS.addService("http", "tcp", 80);
+
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+              AsyncResponseStream *response = request->beginResponseStream("text/html; charset=utf-8");
+              response->print("<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>ESP32 Thermometer</title><meta http-equiv='refresh' content='10'></head><body style= 'text-align: center; font-family: -apple-system,system-ui,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica Neue,sans-serif;'>");
+              response->print("<p style='font-size: 1rem; font-weight: light; color: gray; margin: 1rem;'>");
+              response->print(Hostname);
+              response->print(".local • ");
+              response->print(WiFi.localIP());
+              response->print("</p>");
+              response->print("<p style='font-size: 3rem; font-weight: bold; margin: 1rem;'>ESP32 Thermometer</p>");
+              response->print("<p style='font-weight: bold; margin: 1rem; ");
+              response->print(tempstring);
+              response->print("</p>");
+              response->print("</body></html>");
+              request->send(response); });
+
+  server.onNotFound(notFound);
+
+  AsyncElegantOTA.begin(&server); // Start ElegantOTA
+  // AsyncElegantOTA.begin(&server, "tooki", "grass"); // Start ElegantOTA
+  server.begin();
+  Serial.println("HTTP server started");
+#endif
+
+  ledDrvHnds.allOn();
+  ledDrvTens.allOn();
+  ledDrvOnes.allOn();
   tempFormatter();
 
-  // Serial.println("Setup complete.");
+  Serial.println("Setup complete.");
 }
-
-
 
 void loop()
 {
@@ -490,12 +562,20 @@ bool checkDisplayStaleness(void)
 
 void updateFilter(void)
 {
-  #ifdef USE_FILTER
-    if (displayIsStale == false)
+#ifdef USE_FILTER
+  if (displayIsStale == false)
+  {
+    switch (tempUnit)
     {
+    case Celsius:
       tempC = tempFilter.filter(reading);
+      break;
+    case Fahrenheit:
+      tempF = tempFilter.filter(reading);
+      break;
     }
-   #endif
+  }
+#endif
 }
 
 // converts temperature buffer to formatted number
@@ -513,11 +593,21 @@ void tempFormatter(void)
 #endif
 
     setDecimal(onesDigit, false); // turns off top-right annunciator
+
+#ifdef USE_WIFI
+    sprintf(tempstring, "font-size: 12rem; color: royalblue;'>%.2f°C", tempC);
+#endif
+
     break;
   case Fahrenheit:
     tempF = (tempC * 1.8) + 32;
     temperature = round(tempF * 100);
     setDecimal(onesDigit, true); // turns on top-right annunciator
+
+#ifdef USE_WIFI
+    sprintf(tempstring, "font-size: 12rem; color: royalblue;'>%.2f°F", tempF);
+#endif
+
     break;
   }
 
@@ -654,6 +744,10 @@ void tempFormatter(void)
     decode7seg(tensDigit, 'r');
     setDecimal(tensDigit, false);
     decode7seg(onesDigit, 'r');
+
+#ifdef USE_WIFI
+    sprintf(tempstring, "font-size: 3rem; color: firebrick;'>No sensor found");
+#endif
   }
 }
 
@@ -1105,3 +1199,10 @@ void Task2Code(void *pvParameters)
 {
   // displayThread.runLoop();
 }
+
+#ifdef USE_WIFI
+void notFound(AsyncWebServerRequest *request)
+{
+  request->send(404, "text/plain", "404 Not found");
+}
+#endif
