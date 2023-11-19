@@ -1,4 +1,4 @@
-// Hardware configuration
+// ---Hardware configuration---
 
 // #define USE_MCP9808
 #define USE_DS18
@@ -19,31 +19,31 @@
 
 #ifdef USE_WIFI
 
-#include <WiFi.h>
-#include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
-#include <AsyncElegantOTA.h>
-#include <espmdns.h>
+  #include <WiFi.h>
+  #include <AsyncTCP.h>
+  #include <ESPAsyncWebServer.h>
+  #include <AsyncElegantOTA.h>
+  #include <ESPmDNS.h>
 
-const char *ssid = "NETWORK_SSID";
-const char *password = "NETWORK_PASSWORD";
-const char *Hostname = "thermometer";
+  const char *ssid = "Antonio";
+  const char *password = "aquarius1980geek";
+  const char *Hostname = "thermometer";
 
-AsyncWebServer server(80);
+  AsyncWebServer server(80);
 
 #endif
 
 #ifdef USE_DS18
-#include <OneWire.h>
-#include <DallasTemperature.h>
+  #include <OneWire.h>
+  #include <DallasTemperature.h>
 #endif
 
 #ifdef USE_MCP9808
-#include "Adafruit_MCP9808.h"
+  #include "Adafruit_MCP9808.h"
 #endif
 
 #ifdef USE_FILTER
-#include <Ewma.h>
+  #include <Ewma.h>
 #endif
 
 // pin mapping
@@ -58,43 +58,44 @@ AsyncWebServer server(80);
 #define SDA2 19
 
 #ifdef USE_DS18
-// Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
-#define ONE_WIRE_BUS 5
-#define DS18_RESOLUTION 12
-#define DS18_FILTER_ALPHA 0.2
-#define TEMP_READING_INTERVAL 200
+  // Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
+  #define ONE_WIRE_BUS 5 //pin for OneWire bus
 
-#ifdef USE_AVERAGES
-#define averages 20       // number of readings to average
-float readings[averages]; // the readings from the sensor
-int readIndex = 0;        // the index of the current reading
-float total = 0;          // the running total
-float average = 0;        // the average
-#endif
+  #define DS18_RESOLUTION 12
+  #define DS18_FILTER_ALPHA 0.2
+  #define TEMP_READING_INTERVAL 200
 
-#ifdef USE_FILTER
-float reading = 0;
-Ewma tempFilter(DS18_FILTER_ALPHA); // Less smoothing - faster to detect changes, but more prone to noise
-#endif
+  #ifdef USE_AVERAGES
+    #define averages 20       // number of readings to average
+    float readings[averages]; // the readings from the sensor
+    int readIndex = 0;        // the index of the current reading
+    float total = 0;          // the running total
+    float average = 0;        // the average
+  #endif
 
-OneWire oneWire(ONE_WIRE_BUS);
+  #ifdef USE_FILTER
+  float reading = 0;
+  Ewma tempFilter(DS18_FILTER_ALPHA); // Less smoothing - faster to detect changes, but more prone to noise
+  #endif
 
-// Pass our oneWire reference to Dallas Temperature.
-DallasTemperature ds18b20sensor(&oneWire);
+  OneWire oneWire(ONE_WIRE_BUS);
+
+  // Pass our oneWire reference to Dallas Temperature.
+  DallasTemperature ds18b20sensor(&oneWire);
 #endif
 
 #ifdef USE_MCP9808
-#define averages 10         // number of readings to average
-#define mcp9808address 0x18 // I2C address of sensor
+  #define mcp9808averages 10 // number of readings to average
+  #define mcp9808address 0x18 // I2C address of sensor
 
-#define TEMP_READING_INTERVAL 200
+  #define TEMP_READING_INTERVAL 200
 
-float readings[averages]; // the readings from the analog input
-int readIndex = 0;        // the index of the current reading
-float total = 0;          // the running total
-float average = 0;        // the average
-// Create the MCP9808 temperature sensor object
-Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
+  float readings[mcp9808averages]; // the readings from the analog input
+  int readIndex = 0;        // the index of the current reading
+  float total = 0;          // the running total
+  float average = 0;        // the average
+  // Create the MCP9808 temperature sensor object
+  Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
 #endif
 
 // LED driver I2C addresses
@@ -111,7 +112,7 @@ PCA9624 ledDrvTens(tensAddress);
 PCA9624 ledDrvOnes(onesAddress);
 
 // uint8_t displaybrightness = 128;
-uint8_t globalbrightness = 255;
+uint8_t globalbrightness = 255; //PCA9624's global brightness value (slow PWM layered on top of the fast PWM for each segment)
 uint8_t currentsegmentbrightness[4][9];
 uint8_t newsegmentbrightness[4][9];
 
@@ -133,7 +134,7 @@ float tempF = 0;
 uint8_t hundredsValue, tensValue, onesValue, tenthsValue, hundredthsValue = 0;
 
 #ifdef USE_WIFI
-char tempstring[127];
+  char tempstring[127];
 #endif
 
 bool testLED = 0;
@@ -158,16 +159,6 @@ enum brightnessLevels
   highest = 128
 };
 
-// enum brightnessLevels
-// {
-//   lowest = 5,
-//   lower  = 10,
-//   low = 20,
-//   medium = 40,
-//   medhigh = 60,
-//   high = 90,
-//   highest = 120
-// };
 
 // set default brightness on power-on
 //  brightnessLevels displaybrightness = highest;
@@ -194,35 +185,30 @@ void setup()
 
   Serial.begin(115200); // ESP32 crashes without this, even if not actually needed
 
-  // lcd.begin(16, 2);
-  // taskManager.yieldForMicros(1000);
-
 #ifdef USE_DS18
+    // start 1Wire temp sensor
+    ds18b20sensor.begin();
 
-  // start 1Wire temp sensor
-  ds18b20sensor.begin();
+  #ifdef USE_AVERAGES
+    ds18b20sensor.setResolution(12); // force max resolution for initial reading
 
-#ifdef USE_AVERAGES
-  ds18b20sensor.setResolution(12); // force max resolution for initial reading
+    // initialize readings array with initial reading:
+    ds18b20read();
+    total = averages * tempC;
 
-  // initialize readings array with initial reading:
-  ds18b20read();
-  total = averages * tempC;
+    for (int thisReading = 0; thisReading < averages; thisReading++)
+    {
+      readings[thisReading] = tempC;
+    }
 
-  for (int thisReading = 0; thisReading < averages; thisReading++)
-  {
-    readings[thisReading] = tempC;
-  }
+  #endif
+  #ifdef USE_FILTER
+    ds18b20sensor.setResolution(12); // force max resolution for initial reading
+    // initialize temperature with one unfiltered high-res reading:
+    ds18b20read();
 
-#endif
-#ifdef USE_FILTER
-  ds18b20sensor.setResolution(12); // force max resolution for initial reading
-  // initialize temperature with one unfiltered high-res reading:
-  ds18b20read();
-
-#endif
-  ds18b20sensor.setResolution(DS18_RESOLUTION); // set final resolution for all subsequent readings
-
+  #endif
+    ds18b20sensor.setResolution(DS18_RESOLUTION); // set final resolution for all subsequent readings
 #endif
 
 #ifdef USE_MCP9808
@@ -244,7 +230,7 @@ void setup()
   errorflag = 0;
 
   tempsensor.setResolution(3); // sets the resolution mode of reading, the modes are defined in the table below:
-  // Mode Resolution SampleTime
+  // Mode  Resolution  Sample Time
   //  0    0.5°C       30 ms
   //  1    0.25°C      65 ms
   //  2    0.125°C     130 ms
@@ -291,17 +277,6 @@ void setup()
   // taskManager.scheduleFixedRate(100, updateFilter);
   taskManager.scheduleFixedRate(10, tempFormatter);
 
-  // taskManager.scheduleFixedRate(2500000, toggleLED, TIME_MICROS);
-
-  // taskManager.scheduleFixedRate(50, getTemperature);
-  // taskManager.scheduleFixedRate(50, tempFormatter);
-
-  // decode7seg(hundredsDigit, '2');
-  // setDecimal(hundredsDigit, false);
-  // decode7seg(tensDigit, '7');
-  // setDecimal(tensDigit, true);
-  // decode7seg(onesDigit, '5');
-  // setDecimal(onesDigit, false);
 
   // clear display
   setDecimal(hundredsDigit, false);
@@ -333,6 +308,7 @@ void setup()
 
   MDNS.begin(Hostname);
   MDNS.addService("http", "tcp", 80);
+  // MDNS.addServiceTxt("http", "tcp", "prop1", "test");
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             {
@@ -344,6 +320,23 @@ void setup()
               response->print(WiFi.localIP());
               response->print("</p>");
               response->print("<p style='font-size: 3rem; font-weight: bold; margin: 1rem;'>ESP32 Thermometer</p>");
+              response->print("<p style='font-weight: bold; margin: 1rem; ");
+              response->print(tempstring);
+              response->print("</p>");
+              response->print("</body></html>");
+              request->send(response); });
+
+  server.on("/settings", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+              AsyncResponseStream *response = request->beginResponseStream("text/html; charset=utf-8");
+              response->print("<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>ESP32 Thermometer</title><meta http-equiv='refresh' content='10'></head><body style= 'text-align: center; font-family: -apple-system,system-ui,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica Neue,sans-serif;'>");
+              response->print("<p style='font-size: 1rem; font-weight: light; color: gray; margin: 1rem;'>");
+              response->print(Hostname);
+              response->print(".local • ");
+              response->print(WiFi.localIP());
+              response->print("</p>");
+              response->print("<p style='font-size: 3rem; font-weight: bold; margin: 1rem;'>ESP32 Thermometer</p>");
+              response->print("<p style='font-size: 3rem; font-weight: bold; margin: 1rem;'>Future settings page</p>");
               response->print("<p style='font-weight: bold; margin: 1rem; ");
               response->print(tempstring);
               response->print("</p>");
@@ -370,36 +363,6 @@ void loop()
 {
   // put your main code here, to run repeatedly:
   taskManager.runLoop();
-
-  // display formatting test sequence
-  //  setDecimal(onesDigit, false);
-  //  taskManager.yieldForMicros(5000000);
-  //  setDecimal(onesDigit, true);
-  //  taskManager.yieldForMicros(5000000);
-  //  taskManager.yieldForMicros(5000000);
-
-  // temperature = -9999;
-  // taskManager.yieldForMicros(5000000);
-  // temperature = -888;
-  // taskManager.yieldForMicros(5000000);
-  // temperature = -77;
-  // taskManager.yieldForMicros(5000000);
-  // temperature = -6;
-  // taskManager.yieldForMicros(5000000);
-  // temperature = -0;
-  // taskManager.yieldForMicros(5000000);
-  // temperature = 0;
-  // taskManager.yieldForMicros(5000000);
-  // temperature = 1;
-  // taskManager.yieldForMicros(5000000);
-  // temperature = 22;
-  // taskManager.yieldForMicros(5000000);
-  // temperature = 333;
-  // taskManager.yieldForMicros(5000000);
-  // temperature = 4444;
-  // taskManager.yieldForMicros(5000000);
-  // temperature = 55555;
-  // taskManager.yieldForMicros(5000000);
 }
 
 // reads temperature into buffer
@@ -471,15 +434,7 @@ void getTemperature()
     }
 
 #endif
-
-    // Serial.printf("display temp value: %d\n", temperature);
-    // Serial.printf("DS18B20 temp: %f\n", tempC);
   }
-
-  // void getTemperature()
-  // {
-  //   ds18b20read();
-  // }
 }
 #endif
 
@@ -500,8 +455,7 @@ void ds18b20read()
     errorflag = 1;
     temperature = -999999;
   }
-  // Serial.printf("display temp value: %d\n", temperature);
-  // Serial.printf("DS18B20 temp: %f\n", tempC);
+
 }
 #endif
 
@@ -533,19 +487,12 @@ void getTemperature()
 
     tempC = average;
 
-    // //clear tempC to zero, then add up readings, then divide by number of readings to get average
-    // tempC = 0;
-    // for (int i = 0; i<averages; i++)
-    // {
-    //     tempC = tempC + tempsensor.readTempC();
-    // }
-    // tempC = tempC/averages;
     tempsensor.shutdown();
   }
 }
 #endif
 
-bool checkDisplayStaleness(void)
+bool checkDisplayStaleness(void) //iterate through every segment and see if it needs updating
 {
   for (int digit = 1; digit < 4; digit++)
   {
@@ -592,7 +539,7 @@ void tempFormatter(void)
     temperature = round(tempC * 100); // originally used rint() here and in Fahrenheit. Was this to catch some edge case?? -- round to 1/100 degree
 #endif
 
-    setDecimal(onesDigit, false); // turns off top-right annunciator
+    setDecimal(onesDigit, false); // turns off top-right annunciator for celsius
 
 #ifdef USE_WIFI
     sprintf(tempstring, "font-size: 12rem; color: royalblue;'>%.2f°C", tempC);
@@ -602,7 +549,7 @@ void tempFormatter(void)
   case Fahrenheit:
     tempF = (tempC * 1.8) + 32;
     temperature = round(tempF * 100);
-    setDecimal(onesDigit, true); // turns on top-right annunciator
+    setDecimal(onesDigit, true); // turns on top-right annunciator for fahrenheit
 
 #ifdef USE_WIFI
     sprintf(tempstring, "font-size: 12rem; color: royalblue;'>%.2f°F", tempF);
@@ -611,7 +558,7 @@ void tempFormatter(void)
     break;
   }
 
-  // handle each digit (can probably simplify by sk)
+  // handle each digit (can probably simplify)
   int inputtemp = temperature; // copying to new variable is probably not needed, I think I did it to double-buffer in case the temperature gets updated partway through
   hundredsValue = 0x30 + abs(inputtemp) / 10000;
   tensValue = 0x30 + (abs(inputtemp) % 10000) / 1000;
@@ -634,13 +581,6 @@ void tempFormatter(void)
   if (inputtemp >= 10000) // temps 100 and above: nnn
 
   {
-    // lcd.setCursor(0, 0);
-    // // lcd.println("100 and above");
-    // lcd.print(hundredsValue);
-    // lcd.print(tensValue);
-    // lcd.print(onesValue);
-    // lcd.print("             ");
-
     decode7seg(hundredsDigit, hundredsValue);
     setDecimal(hundredsDigit, false);
     decode7seg(tensDigit, tensValue);
@@ -649,14 +589,6 @@ void tempFormatter(void)
   }
   else if (inputtemp >= 1000) // temps between 10 and 99.9: nn.n
   {
-    // lcd.setCursor(0, 0);
-    // // lcd.println("10 to 99.9");
-    // lcd.print(tensValue);
-    // lcd.print(onesValue);
-    // lcd.print(".");
-    // lcd.print(tenthsValue);
-    // lcd.print("             ");
-
     decode7seg(hundredsDigit, tensValue);
     setDecimal(hundredsDigit, false);
     decode7seg(tensDigit, onesValue);
@@ -668,14 +600,6 @@ void tempFormatter(void)
 #ifdef USE_MCP9808
   else if (inputtemp >= 0) // positive temps 9.99 and below -- version with two decimals of resolution: n.nn
   {
-    // lcd.setCursor(0, 0);
-    // // lcd.println("0 to 9.99");
-    // lcd.print(onesValue);
-    // lcd.print(".");
-    // lcd.print(tenthsValue);
-    // lcd.print(hundredthsValue);
-    // lcd.print("             ");
-
     decode7seg(hundredsDigit, onesValue);
     setDecimal(hundredsDigit, true);
     decode7seg(tensDigit, tenthsValue);
@@ -688,14 +612,6 @@ void tempFormatter(void)
 #ifdef USE_DS18
   else if (inputtemp >= 0) // positive temps 9.99 and below -- version with just one decimal of resolution: n.n
   {
-    //   lcd.setCursor(0, 0);
-    //   // lcd.println("0 to 9.99");
-    //   lcd.print(" ");
-    //   lcd.print(onesValue);
-    //   lcd.print(".");
-    //   lcd.print(tenthsValue);
-    //   lcd.print("             ");
-
     decode7seg(hundredsDigit, 0);
     setDecimal(hundredsDigit, false);
     decode7seg(tensDigit, onesValue);
@@ -706,14 +622,6 @@ void tempFormatter(void)
 
   else if (inputtemp > -1000) // negative temps above -10: -n.n
   {
-    // lcd.setCursor(0, 0);
-    // // lcd.println("-0.1 to -9.9");
-    // lcd.print("-");
-    // lcd.print(onesValue);
-    // lcd.print(".");
-    // lcd.print(tenthsValue);
-    // lcd.print("             ");
-
     decode7seg(hundredsDigit, '-');
     setDecimal(hundredsDigit, false);
     decode7seg(tensDigit, onesValue);
@@ -723,13 +631,6 @@ void tempFormatter(void)
 
   else if (inputtemp <= -1000) // negative temps -10 and below: -nn
   {
-    // lcd.setCursor(0, 0);
-    // // lcd.println ("-10 and below");
-    // lcd.print("-");
-    // lcd.print(tensValue);
-    // lcd.print(onesValue);
-    // lcd.print("             ");
-
     decode7seg(hundredsDigit, '-');
     setDecimal(hundredsDigit, false);
     decode7seg(tensDigit, tensValue);
@@ -1010,41 +911,42 @@ void setDecimal(displaydigit digit, bool value) // also used for onesDigit annun
   }
 }
 
-// increment display brightness changes at same speed on in/out
+/* increment display brightness changes at same speed on in/out
+//----------------
+void updateLEDdisplay(void)
+{
+  updateLEDdigit(hundredsDigit);
+  updateLEDdigit(tensDigit);
+  updateLEDdigit(onesDigit);
 
-// void updateLEDdisplay(void)
-// {
-//   updateLEDdigit(hundredsDigit);
-//   updateLEDdigit(tensDigit);
-//   updateLEDdigit(onesDigit);
+}
 
-// }
+void updateLEDdigit(displaydigit digit)
+{
+  for(int i = 0; i < 8; i++)
+  {
+      if (newsegmentbrightness[digit][i] > currentsegmentbrightness[digit][i])
+      {
+      currentsegmentbrightness[digit][i]++;
+      ledDrvHnds.pwm(i,currentsegmentbrightness[digit][i]);
+      ledDrvTens.pwm(i,currentsegmentbrightness[digit][i]);
+      ledDrvOnes.pwm(i,currentsegmentbrightness[digit][i]);
+      }
+      else if (newsegmentbrightness[digit][i] < currentsegmentbrightness[digit][i])
+      {
+      currentsegmentbrightness[digit][i]--;
+      ledDrvHnds.pwm(i,currentsegmentbrightness[digit][i]);
+      ledDrvTens.pwm(i,currentsegmentbrightness[digit][i]);
+      ledDrvOnes.pwm(i,currentsegmentbrightness[digit][i]);
+      }
+  }
+}
+//------------------ */
 
-// void updateLEDdigit(displaydigit digit)
-// {
-//   for(int i = 0; i < 8; i++)
-//   {
-//       if (newsegmentbrightness[digit][i] > currentsegmentbrightness[digit][i])
-//       {
-//       currentsegmentbrightness[digit][i]++;
-//       ledDrvHnds.pwm(i,currentsegmentbrightness[digit][i]);
-//       ledDrvTens.pwm(i,currentsegmentbrightness[digit][i]);
-//       ledDrvOnes.pwm(i,currentsegmentbrightness[digit][i]);
-//       }
-//       else if (newsegmentbrightness[digit][i] < currentsegmentbrightness[digit][i])
-//       {
-//       currentsegmentbrightness[digit][i]--;
-//       ledDrvHnds.pwm(i,currentsegmentbrightness[digit][i]);
-//       ledDrvTens.pwm(i,currentsegmentbrightness[digit][i]);
-//       ledDrvOnes.pwm(i,currentsegmentbrightness[digit][i]);
-//       }
-//   }
-// }
-
-// separate into two paths for fading up/down to allow different fade speeds
+// separate updateLeddisplay into two paths for fading up/down to allow different fade speeds
 void fadeInLEDs(void)
 {
-  displayIsStale = checkDisplayStaleness();
+  displayIsStale = checkDisplayStaleness(); // update display only when needed
   if (displayIsStale == true)
   {
     for (int digit = 1; digit < 4; digit++)
@@ -1074,7 +976,7 @@ void fadeInLEDs(void)
 
 void fadeOutLEDs(void)
 {
-  displayIsStale = checkDisplayStaleness();
+  displayIsStale = checkDisplayStaleness(); // update display only when needed
   if (displayIsStale == true)
   {
     for (int digit = 1; digit < 4; digit++)
@@ -1176,7 +1078,7 @@ void onKeyDown(pinid_t key, bool held)
       tempFormatter();
     }
     else
-    {
+    {//no action on short key down
     }
     break;
   case BUT2:
@@ -1199,6 +1101,44 @@ void Task2Code(void *pvParameters)
 {
   // displayThread.runLoop();
 }
+
+
+void displayTestSequence(void)
+
+{
+  //display formatting test sequence -- iterates through all the value ranges  
+   setDecimal(onesDigit, false);
+   taskManager.yieldForMicros(5000000);
+   setDecimal(onesDigit, true);
+   taskManager.yieldForMicros(5000000);
+   taskManager.yieldForMicros(5000000);
+
+  temperature = -9999;
+  taskManager.yieldForMicros(5000000);
+  temperature = -888;
+  taskManager.yieldForMicros(5000000);
+  temperature = -77;
+  taskManager.yieldForMicros(5000000);
+  temperature = -6;
+  taskManager.yieldForMicros(5000000);
+  temperature = -0;
+  taskManager.yieldForMicros(5000000);
+  temperature = 0;
+  taskManager.yieldForMicros(5000000);
+  temperature = 1;
+  taskManager.yieldForMicros(5000000);
+  temperature = 22;
+  taskManager.yieldForMicros(5000000);
+  temperature = 333;
+  taskManager.yieldForMicros(5000000);
+  temperature = 4444;
+  taskManager.yieldForMicros(5000000);
+  temperature = 55555;
+  taskManager.yieldForMicros(5000000);
+}
+
+
+
 
 #ifdef USE_WIFI
 void notFound(AsyncWebServerRequest *request)
